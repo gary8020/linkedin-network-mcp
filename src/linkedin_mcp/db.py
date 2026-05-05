@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 SCHEMA_VERSION = "1"
-DEFAULT_DB_PATH = Path.home() / ".linkedin-mcp" / "linkedin.db"
+DEFAULT_DB_PATH = Path.home() / ".linkedin-network-mcp" / "linkedin.db"
 
 
 def connect(db_path: str | Path = DEFAULT_DB_PATH, *, read_only: bool = False) -> sqlite3.Connection:

@@ -15,6 +15,7 @@ linkedin-export/
 *.db-shm
 *.db-wal
 .linkedin-mcp/
+.linkedin-network-mcp/
 
 # Local MCP client configuration can include private paths.
 claude_desktop_config.json

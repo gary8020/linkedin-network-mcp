@@ -1,12 +1,12 @@
-# linkedin-mcp
+# linkedin-network-mcp
 
 Local-first, read-only MCP server for a LinkedIn "Get a copy of your data" export.
 
-`linkedin-mcp` ingests a LinkedIn export directory or ZIP into one SQLite database, then exposes typed MCP tools for relationship search, message search, relationship summaries, and dormant connection discovery. It makes no network calls and does not use an LLM internally.
+`linkedin-network-mcp` ingests a LinkedIn export directory or ZIP into one SQLite database, then exposes typed MCP tools for relationship search, message search, relationship summaries, and dormant connection discovery. It makes no network calls and does not use an LLM internally.
 
 ## What You Get
 
-- A local SQLite database at `~/.linkedin-mcp/linkedin.db` by default.
+- A local SQLite database at `~/.linkedin-network-mcp/linkedin.db` by default.
 - A stdio MCP server for Claude Desktop, Claude Code, Cursor, Continue, or another MCP client.
 - Eight read-only tools:
   - `find_person`
@@ -45,7 +45,7 @@ For the v0.1 relationship tools, the useful files are:
 - `Endorsement_Given_Info.csv`
 - `Endorsement_Received_Info.csv`
 
-You can pass either the unzipped export directory or the original ZIP to `linkedin-mcp ingest`.
+You can pass either the unzipped export directory or the original ZIP to `linkedin-network-mcp ingest`.
 
 ## 2. Install For Local Development
 
@@ -66,13 +66,13 @@ PYTHONPATH=src python3 -m linkedin_mcp --help
 Installed package:
 
 ```bash
-linkedin-mcp ingest /path/to/linkedin-export --db ~/.linkedin-mcp/linkedin.db
+linkedin-network-mcp ingest /path/to/linkedin-export --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 Without installing:
 
 ```bash
-PYTHONPATH=src python3 -m linkedin_mcp ingest /path/to/linkedin-export --db ~/.linkedin-mcp/linkedin.db
+PYTHONPATH=src python3 -m linkedin_mcp ingest /path/to/linkedin-export --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 The ingest is a full replace. Re-running it drops and rebuilds the generated tables from the export snapshot.
@@ -81,7 +81,7 @@ Expected output shape:
 
 ```json
 {
-  "db_path": "/Users/you/.linkedin-mcp/linkedin.db",
+  "db_path": "/Users/you/.linkedin-network-mcp/linkedin.db",
   "source_path": "/path/to/linkedin-export",
   "source_rows": 1937,
   "people": 1035,
@@ -96,13 +96,13 @@ Warnings usually mean LinkedIn changed a CSV shape or a row had an unparseable d
 ## 4. Check The Database
 
 ```bash
-linkedin-mcp doctor --db ~/.linkedin-mcp/linkedin.db --redact-preview
+linkedin-network-mcp doctor --db ~/.linkedin-network-mcp/linkedin.db --redact-preview
 ```
 
 Without installing:
 
 ```bash
-PYTHONPATH=src python3 -m linkedin_mcp doctor --db ~/.linkedin-mcp/linkedin.db --redact-preview
+PYTHONPATH=src python3 -m linkedin_mcp doctor --db ~/.linkedin-network-mcp/linkedin.db --redact-preview
 ```
 
 `doctor` reports schema version, row counts, message coverage, unresolved message senders, and a masked sample of tool output when `--redact-preview` is set.
@@ -112,21 +112,21 @@ PYTHONPATH=src python3 -m linkedin_mcp doctor --db ~/.linkedin-mcp/linkedin.db -
 The `query` command calls the same Python implementation used by the MCP tools.
 
 ```bash
-linkedin-mcp query find_person '{"query":"alex","limit":5}' --db ~/.linkedin-mcp/linkedin.db
-linkedin-mcp query search_messages '{"query":"roadmap","limit":5}' --db ~/.linkedin-mcp/linkedin.db
-linkedin-mcp query dormant_connections '{"min_silent_days":180,"min_active_tie_strength":0.3,"limit":10}' --db ~/.linkedin-mcp/linkedin.db
+linkedin-network-mcp query find_person '{"query":"alex","limit":5}' --db ~/.linkedin-network-mcp/linkedin.db
+linkedin-network-mcp query search_messages '{"query":"roadmap","limit":5}' --db ~/.linkedin-network-mcp/linkedin.db
+linkedin-network-mcp query dormant_connections '{"min_silent_days":180,"min_active_tie_strength":0.3,"limit":10}' --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 Without installing:
 
 ```bash
-PYTHONPATH=src python3 -m linkedin_mcp query find_person '{"query":"alex","limit":5}' --db ~/.linkedin-mcp/linkedin.db
+PYTHONPATH=src python3 -m linkedin_mcp query find_person '{"query":"alex","limit":5}' --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 ## 6. Run The MCP Server
 
 ```bash
-linkedin-mcp serve --db ~/.linkedin-mcp/linkedin.db
+linkedin-network-mcp serve --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 The server uses stdio, so it is normally launched by your MCP client rather than run manually in a terminal.
@@ -153,7 +153,7 @@ Local source checkout:
         "linkedin_mcp",
         "serve",
         "--db",
-        "/Users/<you>/.linkedin-mcp/linkedin.db"
+        "/Users/<you>/.linkedin-network-mcp/linkedin.db"
       ],
       "env": {
         "PYTHONPATH": "/absolute/path/to/linkedin-network-mcp/src"
@@ -169,11 +169,11 @@ Installed package:
 {
   "mcpServers": {
     "linkedin": {
-      "command": "linkedin-mcp",
+      "command": "linkedin-network-mcp",
       "args": [
         "serve",
         "--db",
-        "/Users/<you>/.linkedin-mcp/linkedin.db"
+        "/Users/<you>/.linkedin-network-mcp/linkedin.db"
       ]
     }
   }
@@ -187,7 +187,7 @@ Restart Claude Desktop after editing the config.
 From this repo, after ingesting the database:
 
 ```bash
-claude mcp add linkedin -- python3 -m linkedin_mcp serve --db ~/.linkedin-mcp/linkedin.db
+claude mcp add linkedin -- python3 -m linkedin_mcp serve --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 If using the source checkout without installing, make sure Claude Code launches the server with `PYTHONPATH` pointing at this repo's `src` directory.
@@ -308,14 +308,14 @@ LinkedIn may have changed the export format, or the export is missing a required
 
 ### `unable to open database file`
 
-Check that the parent directory exists and is writable. The default path `~/.linkedin-mcp/linkedin.db` is created automatically by the ingest command.
+Check that the parent directory exists and is writable. The default path `~/.linkedin-network-mcp/linkedin.db` is created automatically by the ingest command.
 
 ### Empty Search Results
 
 Run `doctor` first to confirm that messages were ingested:
 
 ```bash
-linkedin-mcp doctor --db ~/.linkedin-mcp/linkedin.db
+linkedin-network-mcp doctor --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 Then try a broader query or omit `person_id`.

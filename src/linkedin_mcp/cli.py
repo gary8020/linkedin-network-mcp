@@ -11,7 +11,7 @@ from linkedin_mcp.ingest import ingest_export
 from linkedin_mcp.server import LinkedInQueries, run_server
 
 app = typer.Typer(
-    name="linkedin-mcp",
+    name="linkedin-network-mcp",
     no_args_is_help=True,
     help="Ingest a LinkedIn data export and serve read-only MCP tools over stdio.",
 )

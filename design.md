@@ -1,8 +1,8 @@
-# linkedin-mcp Design
+# linkedin-network-mcp Design
 
 ## Summary
 
-`linkedin-mcp` is a local-first, read-only Model Context Protocol server that turns the CSV bundle returned by LinkedIn's "Get a copy of your data" export into a queryable memory layer for LLM agents. It ships as a Python CLI that ingests the export into a single SQLite file, then exposes a small set of typed tools — find people, search messages, summarize relationships, surface dormant connections — over MCP. It is the foundation under a planned dormant-tie re-engagement agent (Layer 2), and is reusable for adjacent ideas such as a privacy auditor, a post ghost-writer, or a job-search co-pilot.
+`linkedin-network-mcp` is a local-first, read-only Model Context Protocol server that turns the CSV bundle returned by LinkedIn's "Get a copy of your data" export into a queryable memory layer for LLM agents. It ships as a Python CLI that ingests the export into a single SQLite file, then exposes a small set of typed tools — find people, search messages, summarize relationships, surface dormant connections — over MCP. It is the foundation under a planned dormant-tie re-engagement agent (Layer 2), and is reusable for adjacent ideas such as a privacy auditor, a post ghost-writer, or a job-search co-pilot.
 
 The server contains no LLM dependency and makes no network calls. All intelligence lives in clients (Claude Desktop, Claude Code, Cursor, custom agents) that consume the tools.
 
@@ -46,14 +46,14 @@ LinkedIn CSVs are treated as hostile input, not clean tables. The ingest layer m
 
 ## Architecture
 
-Single package (`linkedin-mcp`) for v1. Layer 2 (`dormant-tie-agent`) is added as a separate package in v0.2.
+Single package (`linkedin-network-mcp`) for v1. Layer 2 (`dormant-tie-agent`) is added as a separate package in v0.2.
 
 ```
 +------------------------------+
 |  Layer 2: dormant-tie-agent  |   prompt-pack / skill / subagent  [v0.2]
 |  (or any other consumer)     |   v  MCP tool calls
 +------------------------------+
-|  Layer 1: linkedin-mcp       |   read-only tools + signals
+|  Layer 1: linkedin-network-mcp       |   read-only tools + signals
 |  - ingest pipeline           |
 |  - MCP server (fastmcp)      |
 +------------------------------+
@@ -86,11 +86,11 @@ linkedin-network-mcp/
 └── design.md
 ```
 
-## Layer 1: linkedin-mcp
+## Layer 1: linkedin-network-mcp
 
 ### Storage
 
-SQLite, single file, default location `~/.linkedin-mcp/linkedin.db`. Rationale: portable, zero-server, FTS5 built in, no ops, easy backups, works on every OS Claude Desktop runs on.
+SQLite, single file, default location `~/.linkedin-network-mcp/linkedin.db`. Rationale: portable, zero-server, FTS5 built in, no ops, easy backups, works on every OS Claude Desktop runs on.
 
 ### Ingest pipeline
 
@@ -105,7 +105,7 @@ ZIP / dir  ->  per-file parsers  ->  staging tables
                                     (tie_strength, etc.)
 ```
 
-`linkedin-mcp ingest <path>` drops and recreates all derived tables on every run — full replace, no merge logic. The export is a snapshot; idempotency is achieved by the replace itself. User-authored `notes` on `people` rows are a v1.1 concern.
+`linkedin-network-mcp ingest <path>` drops and recreates all derived tables on every run — full replace, no merge logic. The export is a snapshot; idempotency is achieved by the replace itself. User-authored `notes` on `people` rows are a v1.1 concern.
 
 CSV normalization rules:
 
@@ -133,7 +133,7 @@ Unresolved senders in `messages.csv` are handled as follows:
 
 `ImportedContacts.csv` has no LinkedIn URLs and no useful cross-reference keys. It is not part of v0.1 entity resolution; fuzzy name matching is intentionally deferred because false merges are more damaging than missed matches.
 
-The `linkedin-mcp doctor` command reports resolution coverage, low-confidence merges, and unresolved message senders so users can see how trustworthy network queries are on their data.
+The `linkedin-network-mcp doctor` command reports resolution coverage, low-confidence merges, and unresolved message senders so users can see how trustworthy network queries are on their data.
 
 Known issue: `messages.csv`'s `RECIPIENT PROFILE URLS` column is often blank in group conversations. Group messages are stored but not associated with individual people on the recipient side until v2.
 
@@ -290,7 +290,7 @@ Engagement (comments + reactions on others' content) is excluded from v1: `React
 
 Unanswered outbound state is stored at the conversation level. A person-level projection is returned only for one-to-one conversations; group conversations are marked separately because "unanswered" is ambiguous there.
 
-Stored alongside its `signals` JSON, so a user (or an agent) can inspect *why* a score is what it is. Weights are configurable via `~/.linkedin-mcp/config.toml`.
+Stored alongside its `signals` JSON, so a user (or an agent) can inspect *why* a score is what it is. Weights are configurable via `~/.linkedin-network-mcp/config.toml`.
 
 ### Tool surface (v0.1 — 8 tools)
 
@@ -390,16 +390,16 @@ No autosend. v1 is draft-only.
 Distributed via PyPI:
 
 ```
-pip install linkedin-mcp
+pip install linkedin-network-mcp
 # or
-uvx linkedin-mcp serve --db ~/.linkedin-mcp/linkedin.db
+uvx linkedin-network-mcp serve --db ~/.linkedin-network-mcp/linkedin.db
 ```
 
 Subcommands:
 
-- `linkedin-mcp ingest <path>` — ZIP or directory. Full replace on every run.
-- `linkedin-mcp serve` — stdio MCP server. Default for client config.
-- `linkedin-mcp doctor` — DB stats, resolution coverage, schema version.
+- `linkedin-network-mcp ingest <path>` — ZIP or directory. Full replace on every run.
+- `linkedin-network-mcp serve` — stdio MCP server. Default for client config.
+- `linkedin-network-mcp doctor` — DB stats, resolution coverage, schema version.
 
 ### Claude Desktop integration
 
@@ -411,10 +411,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` on macO
     "linkedin": {
       "command": "uvx",
       "args": [
-        "linkedin-mcp",
+        "linkedin-network-mcp",
         "serve",
         "--db",
-        "/Users/<you>/.linkedin-mcp/linkedin.db"
+        "/Users/<you>/.linkedin-network-mcp/linkedin.db"
       ]
     }
   }
@@ -427,10 +427,10 @@ The same configuration shape works in Claude Code (`claude mcp add`), Cursor, an
 
 The data is sensitive: DMs, IPs from `Logins.csv`, phone contacts of people who never consented to their inclusion in someone else's LinkedIn export.
 
-- DB lives at `~/.linkedin-mcp/linkedin.db` by default. Path is configurable.
+- DB lives at `~/.linkedin-network-mcp/linkedin.db` by default. Path is configurable.
 - Server has no outbound network calls. No telemetry. No analytics.
 - README states explicitly what each tool reads and what stays local.
-- `linkedin-mcp doctor --redact-preview` outputs a sample of returned data with PII masked, for users who want to inspect tool outputs before connecting an LLM client.
+- `linkedin-network-mcp doctor --redact-preview` outputs a sample of returned data with PII masked, for users who want to inspect tool outputs before connecting an LLM client.
 - The project does not bundle, ship, or commit any sample export data containing real PII. Test fixtures are synthetic and added before open-sourcing.
 - Before the repository is initialized or published, `.gitignore` must exclude `linkedin-export/`, export ZIPs, generated SQLite databases, local MCP client configs, and OS/editor artifacts.
 - v0.1 default ingest avoids high-sensitivity mirrors that are not needed by the relationship tools. `--include-sensitive` is required before importing account/security/job/privacy-advertising files.
@@ -466,7 +466,7 @@ The data is sensitive: DMs, IPs from `Logins.csv`, phone contacts of people who 
 ## Open questions
 
 - Should the same DB hold multiple exports over time (history tracking) or be replaced on each ingest? v1 replaces; v2 considers append.
-- Default tie-strength weights are calibrated against a single export. A simple `linkedin-mcp boost <person> <delta>` may be enough for user tuning without retraining.
+- Default tie-strength weights are calibrated against a single export. A simple `linkedin-network-mcp boost <person> <delta>` may be enough for user tuning without retraining.
 - Storage migrations: when LinkedIn changes the export schema, require explicit `--migrate` rather than auto-migrating.
 - Should low-confidence medium-key merges be applied automatically with provenance, or should they remain separate until an explicit user/agent merge command exists?
 

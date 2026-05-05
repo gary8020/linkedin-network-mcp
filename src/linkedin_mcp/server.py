@@ -328,7 +328,7 @@ class LinkedInQueries:
 def create_mcp(db_path: str | Path = DEFAULT_DB_PATH) -> FastMCP:
     queries = LinkedInQueries(db_path)
     mcp = FastMCP(
-        "linkedin-mcp",
+        "linkedin-network-mcp",
         instructions="Read-only tools for querying a local LinkedIn export SQLite database.",
     )
 
