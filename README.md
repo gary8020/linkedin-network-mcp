@@ -2,6 +2,12 @@
 
 Local-first, read-only MCP server for a LinkedIn "Get a copy of your data" export.
 
+<p align="center">
+  <a href="./LinkedinNetworkMcpAnimation.mp4">
+    <img src="./LinkedinNetworkMcpAnimation.gif" width="700" />
+  </a>
+</p>
+
 `linkedin-network-mcp` ingests a LinkedIn export directory or ZIP into one SQLite database, then exposes typed MCP tools for relationship search, message search, relationship summaries, and dormant connection discovery. It makes no network calls and does not use an LLM internally.
 
 ## What You Get
