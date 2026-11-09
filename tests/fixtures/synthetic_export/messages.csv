@@ -1,0 +1,8 @@
+"CONVERSATION ID","CONVERSATION TITLE","FROM","SENDER PROFILE URL","TO","RECIPIENT PROFILE URLS","DATE","SUBJECT","CONTENT","FOLDER","ATTACHMENTS","IS MESSAGE DRAFT"
+"c1","","Alice Agency","https://www.linkedin.com/in/alice-agency","Test Owner","https://www.linkedin.com/in/test-owner","2024-01-10 10:00:00 UTC","","Interested in sponsoring the summit booth?","INBOX","","No"
+"c1","","Test Owner","https://www.linkedin.com/in/test-owner","Alice Agency","https://www.linkedin.com/in/alice-agency","2024-01-11 10:00:00 UTC","","Yes, sending the sponsorship deck now.","INBOX","","No"
+"c2","","Bob Saas","https://www.linkedin.com/in/bob-saas","Test Owner","https://www.linkedin.com/in/test-owner","2026-10-01 10:00:00 UTC","","Quick question about your sourcing service","INBOX","","No"
+"c3","","山田 太郎","https://www.linkedin.com/in/taro-yamada","Test Owner","https://www.linkedin.com/in/test-owner","2023-05-01 10:00:00 UTC","","スポンサーシップの件でご相談です","INBOX","","No"
+"c3","","Test Owner","https://www.linkedin.com/in/test-owner","山田 太郎","https://www.linkedin.com/in/taro-yamada","2023-05-02 10:00:00 UTC","","ありがとうございます。資料を送ります。","INBOX","","No"
+"c4","","LinkedIn Premium","","Test Owner","https://www.linkedin.com/in/test-owner","2025-02-01 10:00:00 UTC","Try Premium","Unlock more insights with Premium.","INBOX","","No"
+"c5","","Test Owner","https://www.linkedin.com/in/test-owner","Hiro Sato","https://www.linkedin.com/in/hiro-sato","2022-03-01 10:00:00 UTC","","Hi Hiro, any update on the sourcing trip?","SENT","","No"

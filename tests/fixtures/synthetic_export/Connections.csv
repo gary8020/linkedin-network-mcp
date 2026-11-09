@@ -1,0 +1,12 @@
+Notes:
+"Synthetic fixture. Every person, company, and URL in this file is fictional."
+
+First Name,Last Name,URL,Email Address,Company,Position,Connected On
+Alice,Agency,https://www.linkedin.com/in/alice-agency,,Fake Amazon Agency,Founder,01 Jan 2023
+Bob,Saas,https://www.linkedin.com/in/bob-saas,,FakeTool SaaS,Head of Partnerships,15 Mar 2022
+太郎,山田,https://www.linkedin.com/in/taro-yamada,,株式会社テスト,代表取締役,10 Jun 2021
+Never,Messaged,https://www.linkedin.com/in/never-messaged,,Big Brand Inc,VP Marketing,02 Feb 2020
+Dana,Dentist,https://www.linkedin.com/in/dana-dentist,,Smile Clinic,Dentist,05 May 2026
+Evan,Logistics,https://www.linkedin.com/in/evan-logistics,,Fake 3PL Logistics,Operations Manager,01 Aug 2024
+Fiona,Shopify,https://www.linkedin.com/in/fiona-shopify,,Store Builders,Shopify Ecommerce Consultant,20 Sep 2025
+Hiro,Sato,https://www.linkedin.com/in/hiro-sato,,Fake Sourcing KK,CEO,01 Jan 2019

@@ -49,6 +49,10 @@ def ingest_export(
     del include_sensitive
     ref_now = now or datetime.now(timezone.utc)
     with ExportSource(export_path) as source:
+        if not source.exists("Connections.csv"):
+            raise FileNotFoundError(
+                f"No Connections.csv found under {export_path}. Pass the top-level export directory or ZIP."
+            )
         conn = connect(db_path)
         try:
             reset_schema(conn)
@@ -410,6 +414,13 @@ class IngestContext:
                 )
 
     def ingest_messages(self) -> None:
+        if not self.source.exists("messages.csv"):
+            self.warnings.append(
+                "No messages.csv found in the export (matched case-insensitively). "
+                "DM search, relationship summaries, DM-based tie strength, and dormant ties will be empty. "
+                "Re-request the export from LinkedIn with messages included."
+            )
+            return
         rows = read_linkedin_csv(
             self.source,
             "messages.csv",

@@ -4,6 +4,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
 import zipfile
 from dataclasses import dataclass
@@ -26,7 +27,17 @@ class CsvRecord:
     data: dict[str, str]
 
 
+MAX_EXPORT_DIR_DEPTH = 3
+
+
 class ExportSource:
+    """Read files from an export directory or ZIP, matching file names case-insensitively.
+
+    LinkedIn has shipped both `messages.csv` and `Messages.csv`, and ZIPs often nest
+    everything under one top-level folder, so lookups match on a case-folded path
+    suffix and prefer the shallowest match.
+    """
+
     def __init__(self, path: str | Path):
         self.path = Path(path).expanduser()
         self._zip: zipfile.ZipFile | None = None
@@ -34,7 +45,9 @@ class ExportSource:
         if self.path.is_file() and zipfile.is_zipfile(self.path):
             self._zip = zipfile.ZipFile(self.path)
             self._members = {name.strip("/"): name for name in self._zip.namelist() if not name.endswith("/")}
-        elif not self.path.is_dir():
+        elif self.path.is_dir():
+            self._members = {relative: relative for relative in _walk_relative_files(self.path)}
+        else:
             raise FileNotFoundError(f"LinkedIn export path does not exist or is not a ZIP: {self.path}")
 
     def close(self) -> None:
@@ -48,29 +61,48 @@ class ExportSource:
         self.close()
 
     def exists(self, relative_path: str) -> bool:
-        if self._zip is not None:
-            return self._find_member(relative_path) is not None
-        return (self.path / relative_path).exists()
+        return self.resolve(relative_path) is not None
+
+    def resolve(self, relative_path: str) -> str | None:
+        """Return the actual member/relative path for a logical export file name."""
+        return self._find_member(relative_path)
 
     def read_text(self, relative_path: str) -> str:
+        member = self._find_member(relative_path)
+        if member is None:
+            raise FileNotFoundError(relative_path)
         if self._zip is not None:
-            member = self._find_member(relative_path)
-            if member is None:
-                raise FileNotFoundError(relative_path)
             data = self._zip.read(member)
         else:
-            data = (self.path / relative_path).read_bytes()
+            data = (self.path / member).read_bytes()
         return data.decode("utf-8-sig")
 
     def _find_member(self, relative_path: str) -> str | None:
         wanted = relative_path.strip("/")
         if wanted in self._members:
             return self._members[wanted]
-        suffix = "/" + wanted
-        for normalized, original in self._members.items():
-            if normalized.endswith(suffix):
-                return original
-        return None
+        wanted_folded = wanted.casefold()
+        suffix = "/" + wanted_folded
+        matches = [
+            (normalized.count("/"), normalized, original)
+            for normalized, original in self._members.items()
+            if normalized.casefold() == wanted_folded or normalized.casefold().endswith(suffix)
+        ]
+        if not matches:
+            return None
+        return min(matches)[2]
+
+
+def _walk_relative_files(root: Path) -> list[str]:
+    result: list[str] = []
+    for current, dirs, files in os.walk(root):
+        relative_dir = Path(current).relative_to(root)
+        depth = len(relative_dir.parts)
+        if depth >= MAX_EXPORT_DIR_DEPTH:
+            dirs[:] = []
+        for name in files:
+            result.append((relative_dir / name).as_posix())
+    return result
 
 
 def read_linkedin_csv(
