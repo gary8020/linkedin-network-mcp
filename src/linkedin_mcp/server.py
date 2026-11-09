@@ -114,26 +114,32 @@ class LinkedInQueries:
         limit: int = 20,
     ) -> list[MessageHit]:
         limit = clamp_limit(limit, 1, 100)
-        fts_query = query if advanced_fts else plain_text_to_fts(query)
-        if not fts_query:
+        if not query.strip():
             return []
-
-        conditions = ["messages_fts MATCH ?"]
-        params: list[object] = [fts_query]
-        add_message_filters(conditions, params, person_id, since, until)
-        params.append(limit)
-        sql = f"""
-            SELECT m.*, bm25(messages_fts) AS rank
-            FROM messages_fts
-            JOIN messages m ON m.id = messages_fts.rowid
-            WHERE {' AND '.join(conditions)}
-            ORDER BY rank ASC, m.sent_at DESC
-            LIMIT ?
-        """
+        # unicode61 does not segment CJK text, so FTS only matches whole runs of
+        # Japanese characters; substring search is correct for those queries.
+        use_fts = advanced_fts or not contains_cjk(query)
+        fts_query = query if advanced_fts else plain_text_to_fts(query)
         with self.connection() as conn:
-            try:
-                rows = conn.execute(sql, params).fetchall()
-            except sqlite3.OperationalError:
+            rows: list[sqlite3.Row] = []
+            if use_fts and fts_query:
+                conditions = ["messages_fts MATCH ?"]
+                params: list[object] = [fts_query]
+                add_message_filters(conditions, params, person_id, since, until)
+                params.append(limit)
+                sql = f"""
+                    SELECT m.*, bm25(messages_fts) AS rank
+                    FROM messages_fts
+                    JOIN messages m ON m.id = messages_fts.rowid
+                    WHERE {' AND '.join(conditions)}
+                    ORDER BY rank ASC, m.sent_at DESC
+                    LIMIT ?
+                """
+                try:
+                    rows = conn.execute(sql, params).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+            if not rows:
                 rows = self.search_messages_like(conn, query, person_id, since, until, limit)
             return [message_hit_from_row(conn, row) for row in rows]
 
@@ -146,8 +152,9 @@ class LinkedInQueries:
         until: str | None,
         limit: int,
     ) -> list[sqlite3.Row]:
-        conditions = ["lower(coalesce(m.content, '')) LIKE ?"]
-        params: list[object] = [f"%{query.lower()}%"]
+        terms = query.split() or [query]
+        conditions = ["coalesce(m.content, '') LIKE ? ESCAPE '\\'" for _ in terms]
+        params: list[object] = [f"%{escape_like(term)}%" for term in terms]
         add_message_filters(conditions, params, person_id, since, until, alias="m")
         params.append(limit)
         return conn.execute(
@@ -537,9 +544,22 @@ def self_name(conn: sqlite3.Connection) -> str | None:
     return full_name(row["first_name"], row["last_name"]) or None
 
 
+CJK_PATTERN = re.compile(
+    "[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]"
+)
+
+
+def contains_cjk(text: str) -> bool:
+    return CJK_PATTERN.search(text) is not None
+
+
 def plain_text_to_fts(query: str) -> str:
     tokens = re.findall(r"[\w]+", query, flags=re.UNICODE)
-    return " AND ".join(f'"{token.replace(chr(34), chr(34) + chr(34))}"' for token in tokens)
+    return " AND ".join(f'"{token.replace(chr(34), chr(34) + chr(34))}"*' for token in tokens)
+
+
+def escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def add_message_filters(
