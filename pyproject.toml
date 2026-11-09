@@ -4,15 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "linkedin-network-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first MCP server for querying a LinkedIn data export."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
-  "fastmcp>=2.14",
-  "pydantic>=2.0",
-  "typer>=0.12",
+  "fastmcp>=4.1,<5",
+  "pydantic>=2.7,<3",
+  "typer>=0.12,<1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<10",
 ]
 
 [project.scripts]
