@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
+import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from fastmcp import FastMCP
 
-from linkedin_mcp.db import DEFAULT_DB_PATH, connect
+from linkedin_mcp.config import load_config
+from linkedin_mcp.db import DEFAULT_DB_PATH, SCHEMA_VERSION, connect
 from linkedin_mcp.ingest.csv_utils import full_name, parse_datetime, search_name, to_db_timestamp
 from linkedin_mcp.models import (
     Conversation,
@@ -19,12 +23,16 @@ from linkedin_mcp.models import (
     Person,
     PersonDetail,
     RelationshipSignals,
+    WarmLead,
 )
+
+WARM_LIST_MAX_LIMIT = 5000
 
 
 class LinkedInQueries:
-    def __init__(self, db_path: str | Path = DEFAULT_DB_PATH):
+    def __init__(self, db_path: str | Path = DEFAULT_DB_PATH, config_path: str | Path | None = None):
         self.db_path = Path(db_path).expanduser()
+        self.config_path = config_path
 
     def find_person(self, query: str, limit: int = 10) -> list[Person]:
         limit = clamp_limit(limit, 1, 100)
@@ -323,8 +331,75 @@ class LinkedInQueries:
                 )
             return ties
 
-    def doctor(self, *, redact_preview: bool = False) -> DoctorReport:
+    def warm_list(
+        self,
+        keywords: list[str] | None = None,
+        require_keyword: bool = False,
+        min_score: float = 0.0,
+        limit: int = 50,
+    ) -> list[WarmLead]:
+        limit = clamp_limit(limit, 1, WARM_LIST_MAX_LIMIT)
+        settings = load_config(self.config_path).warm_list
+        active_keywords = settings.keywords if keywords is None else tuple(k.strip() for k in keywords if k.strip())
+        patterns = [(keyword, keyword_pattern(keyword)) for keyword in active_keywords]
+        weights = settings.weights
+        total_weight = sum(weights.values())
+
         with self.connection() as conn:
+            reference = ingest_reference_time(conn)
+            rows = conn.execute(
+                """
+                SELECT p.*, t.score, t.active_score, t.last_message_at, t.last_touch_at,
+                       t.days_since_last_message, t.signals
+                FROM people p
+                LEFT JOIN tie_strength t ON t.person_id = p.id
+                WHERE p.source = 'connection'
+                """
+            ).fetchall()
+
+            scored: list[tuple[float, list[str], dict[str, float], dict[str, object], sqlite3.Row]] = []
+            for row in rows:
+                signals = json.loads(row["signals"]) if row["signals"] else {}
+                haystack = fold_text(f"{row['current_company'] or ''} | {row['current_title'] or ''}")
+                matched = [keyword for keyword, pattern in patterns if pattern.search(haystack)]
+                if require_keyword and not matched:
+                    continue
+                components = {
+                    "keyword": min(1.0, len(matched) / settings.keyword_saturation) if patterns else 0.0,
+                    "dm_history": float(signals.get("message_volume", 0.0)),
+                    "endorsements": float(signals.get("endorsement_overlap", 0.0)),
+                    "connected_recency": connected_recency(
+                        row["connected_on"], reference, settings.connected_decay_days
+                    ),
+                }
+                score = sum(weights[name] * value for name, value in components.items()) / total_weight
+                if score < min_score:
+                    continue
+                scored.append((score, matched, components, signals, row))
+
+            scored.sort(key=lambda item: (-item[0], -len(item[1]), item[4]["full_name"]))
+            leads: list[WarmLead] = []
+            for rank, (score, matched, components, signals, row) in enumerate(scored[:limit], start=1):
+                inbound_at, inbound_snippet = last_inbound(conn, int(row["id"]))
+                leads.append(
+                    WarmLead(
+                        rank=rank,
+                        person=person_from_row(row),
+                        score=round(score, 4),
+                        matched_keywords=matched,
+                        components={name: round(value, 4) for name, value in components.items()},
+                        connected_on=row["connected_on"],
+                        messages_sent=int(signals.get("messages_sent", 0)),
+                        messages_received=int(signals.get("messages_received", 0)),
+                        endorsements=int(signals.get("endorsements", 0)),
+                        last_inbound_at=inbound_at,
+                        last_inbound_snippet=inbound_snippet,
+                    )
+                )
+            return leads
+
+    def doctor(self, *, redact_preview: bool = False) -> DoctorReport:
+        with self.connection(check_schema=False) as conn:
             schema = conn.execute(
                 "SELECT value FROM schema_info WHERE key = 'schema_version'"
             ).fetchone()
@@ -355,12 +430,22 @@ class LinkedInQueries:
                 preview=preview,
             )
 
-    def connection(self) -> sqlite3.Connection:
-        return connect(self.db_path, read_only=True)
+    def connection(self, *, check_schema: bool = True) -> sqlite3.Connection:
+        conn = connect(self.db_path, read_only=True)
+        if check_schema:
+            row = conn.execute("SELECT value FROM schema_info WHERE key = 'schema_version'").fetchone()
+            version = row["value"] if row else None
+            if version != SCHEMA_VERSION:
+                conn.close()
+                raise RuntimeError(
+                    f"Database schema version {version} does not match {SCHEMA_VERSION}; "
+                    "re-run `linkedin-network-mcp ingest` on your export."
+                )
+        return conn
 
 
-def create_mcp(db_path: str | Path = DEFAULT_DB_PATH) -> FastMCP:
-    queries = LinkedInQueries(db_path)
+def create_mcp(db_path: str | Path = DEFAULT_DB_PATH, config_path: str | Path | None = None) -> FastMCP:
+    queries = LinkedInQueries(db_path, config_path)
     mcp = FastMCP(
         "linkedin-network-mcp",
         instructions="Read-only tools for querying a local LinkedIn export SQLite database.",
@@ -422,11 +507,27 @@ def create_mcp(db_path: str | Path = DEFAULT_DB_PATH) -> FastMCP:
         """List first-degree connections with strong past ties and stale DM activity."""
         return queries.dormant_connections(min_silent_days, min_active_tie_strength, limit)
 
+    @mcp.tool
+    def warm_list(
+        keywords: list[str] | None = None,
+        require_keyword: bool = False,
+        min_score: float = 0.0,
+        limit: int = 50,
+    ) -> list[WarmLead]:
+        """Rank ALL first-degree connections, including never-messaged ones, as warm leads.
+
+        Score = weighted keyword hits in company/title + DM history + endorsements + connect
+        recency. Keywords and weights come from the config file (default: 7FSS sponsor
+        keywords); pass `keywords` to override the list for one call. Each lead includes
+        the score components and matched keywords so the ranking can be explained.
+        """
+        return queries.warm_list(keywords, require_keyword, min_score, limit)
+
     return mcp
 
 
-def run_server(db_path: str | Path = DEFAULT_DB_PATH) -> None:
-    create_mcp(db_path).run(transport="stdio")
+def run_server(db_path: str | Path = DEFAULT_DB_PATH, config_path: str | Path | None = None) -> None:
+    create_mcp(db_path, config_path).run(transport="stdio")
 
 
 def person_from_row(row: sqlite3.Row) -> Person:
@@ -671,6 +772,37 @@ def last_inbound(conn: sqlite3.Connection, person_id: int) -> tuple[str | None, 
     if row is None:
         return None, None
     return row["sent_at"], message_topic(row["subject"], row["content"])
+
+
+def fold_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value).casefold()
+
+
+def keyword_pattern(keyword: str) -> re.Pattern[str]:
+    folded = fold_text(keyword.strip())
+    if folded[:1].isascii() and folded[:1].isalnum():
+        return re.compile(r"(?<![0-9a-z])" + re.escape(folded))
+    return re.compile(re.escape(folded))
+
+
+def connected_recency(connected_on: str | None, reference: datetime, decay_days: float) -> float:
+    if not connected_on:
+        return 0.0
+    try:
+        connected = datetime.fromisoformat(connected_on).date()
+    except ValueError:
+        return 0.0
+    days = max(0, (reference.date() - connected).days)
+    return math.exp(-days / decay_days)
+
+
+def ingest_reference_time(conn: sqlite3.Connection) -> datetime:
+    row = conn.execute("SELECT value FROM schema_info WHERE key = 'ingested_at'").fetchone()
+    if row is not None:
+        parsed = parse_datetime(row["value"])
+        if parsed is not None:
+            return parsed
+    return datetime.now(timezone.utc)
 
 
 def message_topic(subject: str | None, content: str | None) -> str | None:

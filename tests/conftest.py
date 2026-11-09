@@ -28,5 +28,10 @@ def fixture_db(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def queries(fixture_db: Path) -> LinkedInQueries:
-    return LinkedInQueries(fixture_db)
+def queries(fixture_db: Path, tmp_path: Path) -> LinkedInQueries:
+    return LinkedInQueries(fixture_db, config_path=tmp_path / "missing-config.toml")
+
+
+@pytest.fixture(autouse=True)
+def isolate_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LINKEDIN_NETWORK_MCP_CONFIG", str(tmp_path / "isolated-config.toml"))

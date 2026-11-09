@@ -58,6 +58,10 @@ def ingest_export(
         try:
             reset_schema(conn)
             ctx = IngestContext(conn, source, Path(export_path), ref_now)
+            conn.execute(
+                "INSERT INTO schema_info(key, value) VALUES ('ingested_at', ?)",
+                (to_db_timestamp(ctx.now),),
+            )
             ctx.ingest_self_identity()
             ctx.discover_self_urls()
             ctx.ingest_career_mirrors()

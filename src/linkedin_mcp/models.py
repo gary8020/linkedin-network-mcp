@@ -90,6 +90,20 @@ class DormantTie(BaseModel):
     outbound_unanswered: bool
 
 
+class WarmLead(BaseModel):
+    rank: int
+    person: Person
+    score: float
+    matched_keywords: list[str] = Field(default_factory=list)
+    components: dict[str, float] = Field(default_factory=dict)
+    connected_on: str | None = None
+    messages_sent: int = 0
+    messages_received: int = 0
+    endorsements: int = 0
+    last_inbound_at: datetime | None = None
+    last_inbound_snippet: str | None = None
+
+
 class IngestReport(BaseModel):
     db_path: str
     source_path: str
