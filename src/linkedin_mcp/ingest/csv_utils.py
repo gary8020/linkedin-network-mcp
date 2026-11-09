@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -252,6 +253,29 @@ def normalize_name(value: str | None) -> str:
     if not value:
         return ""
     return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def search_name(value: str | None) -> str:
+    """Normalize a name for lookup: NFKC (full-width to half-width), collapsed spaces, lowercase."""
+    if not value:
+        return ""
+    return normalize_name(unicodedata.normalize("NFKC", value))
+
+
+def name_search_variants(value: str | None) -> set[str]:
+    """Return lookup forms of a name, including the swapped order for two-part names.
+
+    Japanese names appear as family-given in messages (山田 太郎) but given-family in
+    Connections.csv (太郎 山田), so both orders must resolve to the same person.
+    """
+    normalized = search_name(value)
+    if not normalized:
+        return set()
+    variants = {normalized}
+    parts = normalized.split(" ")
+    if len(parts) == 2:
+        variants.add(f"{parts[1]} {parts[0]}")
+    return variants
 
 
 def full_name(*parts: str | None) -> str:

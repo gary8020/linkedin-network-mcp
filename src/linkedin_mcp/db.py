@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 DEFAULT_DB_PATH = Path.home() / ".linkedin-network-mcp" / "linkedin.db"
 
 
@@ -36,6 +36,7 @@ def reset_schema(conn: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS conversation_participants;
         DROP TABLE IF EXISTS messages;
         DROP TABLE IF EXISTS person_source_keys;
+        DROP TABLE IF EXISTS person_names;
         DROP TABLE IF EXISTS people;
         DROP TABLE IF EXISTS self_contact_methods;
         DROP TABLE IF EXISTS self_profile;
@@ -112,6 +113,14 @@ def create_schema(conn: sqlite3.Connection) -> None:
           normalized_key  TEXT NOT NULL,
           confidence      REAL NOT NULL,
           UNIQUE(key_type, normalized_key, source_row_id)
+        );
+
+        CREATE TABLE person_names (
+          id         INTEGER PRIMARY KEY,
+          person_id  INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+          name       TEXT NOT NULL,
+          compact    TEXT NOT NULL,
+          UNIQUE(person_id, name)
         );
 
         CREATE TABLE messages (
@@ -284,6 +293,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX idx_people_name ON people(full_name);
         CREATE INDEX idx_people_company ON people(current_company);
         CREATE INDEX idx_people_connected ON people(connected_on);
+        CREATE INDEX idx_person_names_person ON person_names(person_id);
         CREATE INDEX idx_person_source_keys_lookup ON person_source_keys(key_type, normalized_key);
         CREATE INDEX idx_messages_conversation ON messages(conversation_id, sent_at);
         CREATE INDEX idx_messages_sent_at ON messages(sent_at);

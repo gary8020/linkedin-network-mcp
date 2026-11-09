@@ -14,6 +14,7 @@ from linkedin_mcp.ingest.csv_utils import (
     date_diff_days,
     full_name,
     is_system_sender,
+    name_search_variants,
     normalize_name,
     normalize_profile_url,
     parse_date,
@@ -603,6 +604,8 @@ class IngestContext:
                 location,
             )
 
+        self.record_person_names(person_id, cleaned_name)
+
         if raw_row_id is not None:
             if normalized_url is not None:
                 self.record_person_key(person_id, raw_row_id, "profile_url", normalized_url.key, confidence)
@@ -641,7 +644,10 @@ class IngestContext:
         self.conn.execute(
             """
             UPDATE people
-            SET full_name = COALESCE(NULLIF(?, ''), full_name),
+            SET full_name = CASE
+                  WHEN ? = 'connection' OR source != 'connection' THEN COALESCE(NULLIF(?, ''), full_name)
+                  ELSE full_name
+                END,
                 public_id = COALESCE(public_id, ?),
                 profile_url = COALESCE(profile_url, ?),
                 current_company = CASE
@@ -659,6 +665,7 @@ class IngestContext:
             WHERE id = ?
             """,
             (
+                source,
                 name,
                 public_id,
                 profile_url,
@@ -675,6 +682,13 @@ class IngestContext:
                 person_id,
             ),
         )
+
+    def record_person_names(self, person_id: int, name: str) -> None:
+        for variant in name_search_variants(name):
+            self.conn.execute(
+                "INSERT OR IGNORE INTO person_names(person_id, name, compact) VALUES (?, ?, ?)",
+                (person_id, variant, variant.replace(" ", "")),
+            )
 
     def find_person_by_key(self, key_type: str, normalized_key: str) -> int | None:
         rows = self.conn.execute(

@@ -9,7 +9,7 @@ from typing import Literal
 from fastmcp import FastMCP
 
 from linkedin_mcp.db import DEFAULT_DB_PATH, connect
-from linkedin_mcp.ingest.csv_utils import full_name, parse_datetime, to_db_timestamp
+from linkedin_mcp.ingest.csv_utils import full_name, parse_datetime, search_name, to_db_timestamp
 from linkedin_mcp.models import (
     Conversation,
     DoctorReport,
@@ -28,7 +28,9 @@ class LinkedInQueries:
 
     def find_person(self, query: str, limit: int = 10) -> list[Person]:
         limit = clamp_limit(limit, 1, 100)
-        like = f"%{query.strip().lower()}%"
+        normalized = search_name(query)
+        like = f"%{escape_like(normalized)}%"
+        compact_like = f"%{escape_like(normalized.replace(' ', ''))}%"
         with self.connection() as conn:
             rows = conn.execute(
                 """
@@ -36,17 +38,34 @@ class LinkedInQueries:
                        t.days_since_last_message
                 FROM people p
                 LEFT JOIN tie_strength t ON t.person_id = p.id
-                WHERE lower(p.full_name) LIKE ?
-                   OR lower(coalesce(p.current_company, '')) LIKE ?
-                   OR lower(coalesce(p.current_title, '')) LIKE ?
-                   OR lower(coalesce(p.public_id, '')) LIKE ?
+                WHERE lower(p.full_name) LIKE :like ESCAPE '\\'
+                   OR lower(coalesce(p.current_company, '')) LIKE :like ESCAPE '\\'
+                   OR lower(coalesce(p.current_title, '')) LIKE :like ESCAPE '\\'
+                   OR lower(coalesce(p.public_id, '')) LIKE :like ESCAPE '\\'
+                   OR EXISTS (
+                     SELECT 1 FROM person_names pn
+                     WHERE pn.person_id = p.id
+                       AND (pn.name LIKE :like ESCAPE '\\' OR pn.compact LIKE :compact_like ESCAPE '\\')
+                   )
                 ORDER BY
-                  CASE WHEN lower(p.full_name) = ? THEN 0 ELSE 1 END,
+                  CASE
+                    WHEN EXISTS (
+                      SELECT 1 FROM person_names pn
+                      WHERE pn.person_id = p.id AND (pn.name = :exact OR pn.compact = :exact_compact)
+                    ) THEN 0
+                    ELSE 1
+                  END,
                   coalesce(t.score, 0) DESC,
                   p.full_name ASC
-                LIMIT ?
+                LIMIT :limit
                 """,
-                (like, like, like, like, query.strip().lower(), limit),
+                {
+                    "like": like,
+                    "compact_like": compact_like,
+                    "exact": normalized,
+                    "exact_compact": normalized.replace(" ", ""),
+                    "limit": limit,
+                },
             ).fetchall()
             return [person_from_row(row) for row in rows]
 
