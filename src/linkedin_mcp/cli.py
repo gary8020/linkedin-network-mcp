@@ -8,6 +8,7 @@ import typer
 
 from linkedin_mcp.config import CONFIG_ENV_VAR, DEFAULT_CONFIG_PATH, write_default_config
 from linkedin_mcp.db import DEFAULT_DB_PATH
+from linkedin_mcp.export import EXPORTABLE_TOOLS, render
 from linkedin_mcp.ingest import ingest_export
 from linkedin_mcp.server import LinkedInQueries, run_server
 
@@ -84,6 +85,39 @@ def query(
     else:
         payload = result
     typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+@app.command()
+def export(
+    tool: Annotated[str, typer.Argument(help=f"One of: {', '.join(EXPORTABLE_TOOLS)}.")],
+    args: Annotated[
+        str,
+        typer.Argument(help="JSON object of tool arguments, for example '{\"limit\":2000}'."),
+    ] = "{}",
+    fmt: Annotated[str, typer.Option("--format", "-f", help="csv or md.")] = "csv",
+    out: Annotated[
+        Optional[Path],
+        typer.Option("--out", "-o", help="Output file. Prints to stdout when omitted."),
+    ] = None,
+    db: DbOption = DEFAULT_DB_PATH,
+    config: ConfigOption = None,
+) -> None:
+    """Export a ranked list to CSV or Markdown for manual review. Never drafts or sends anything."""
+    if tool not in EXPORTABLE_TOOLS:
+        raise typer.BadParameter(f"Cannot export {tool}; expected one of: {', '.join(EXPORTABLE_TOOLS)}")
+    fmt = fmt.lower()
+    if fmt not in {"csv", "md", "markdown"}:
+        raise typer.BadParameter("--format must be csv or md")
+    items = run_tool(LinkedInQueries(db, config), tool, args)
+    text = render(tool, items, fmt, title=f"{tool} export")
+    if out is None:
+        typer.echo(text, nl=False)
+        return
+    out = out.expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # BOM so Excel opens Japanese names in CSV correctly.
+    out.write_text(text, encoding="utf-8-sig" if fmt == "csv" else "utf-8")
+    typer.echo(f"Wrote {len(items)} rows to {out}", err=True)
 
 
 @app.command("init-config")
