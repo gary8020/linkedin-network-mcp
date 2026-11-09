@@ -304,16 +304,24 @@ class LinkedInQueries:
                 """,
                 (min_silent_days, min_active_tie_strength, limit),
             ).fetchall()
-            return [
-                DormantTie(
-                    person=person_from_row(row),
-                    last_topic=last_topic(conn, int(row["id"])),
-                    silent_for_days=int(row["days_since_last_message"]),
-                    active_tie_strength=float(row["active_score"] or 0),
-                    outbound_unanswered=has_unanswered_outbound(conn, int(row["id"])),
+            ties: list[DormantTie] = []
+            for row in rows:
+                person_id = int(row["id"])
+                topic, topic_is_mine = last_topic(conn, person_id)
+                inbound_at, inbound_snippet = last_inbound(conn, person_id)
+                ties.append(
+                    DormantTie(
+                        person=person_from_row(row),
+                        last_topic=topic,
+                        last_topic_is_mine=topic_is_mine,
+                        last_inbound_at=inbound_at,
+                        last_inbound_snippet=inbound_snippet,
+                        silent_for_days=int(row["days_since_last_message"]),
+                        active_tie_strength=float(row["active_score"] or 0),
+                        outbound_unanswered=has_unanswered_outbound(conn, person_id),
+                    )
                 )
-                for row in rows
-            ]
+            return ties
 
     def doctor(self, *, redact_preview: bool = False) -> DoctorReport:
         with self.connection() as conn:
@@ -630,10 +638,10 @@ def snippet(content: str, max_length: int = 280) -> str:
     return collapsed[: max_length - 1].rstrip() + "..."
 
 
-def last_topic(conn: sqlite3.Connection, person_id: int) -> str | None:
+def last_topic(conn: sqlite3.Connection, person_id: int) -> tuple[str | None, bool]:
     row = conn.execute(
         """
-        SELECT m.subject, m.content
+        SELECT m.subject, m.content, m.sender_is_me
         FROM messages m
         WHERE EXISTS (
           SELECT 1 FROM message_participants mp
@@ -645,10 +653,30 @@ def last_topic(conn: sqlite3.Connection, person_id: int) -> str | None:
         (person_id,),
     ).fetchone()
     if row is None:
-        return None
-    if row["subject"]:
-        return row["subject"]
-    for line in (row["content"] or "").splitlines():
+        return None, False
+    return message_topic(row["subject"], row["content"]), bool(row["sender_is_me"])
+
+
+def last_inbound(conn: sqlite3.Connection, person_id: int) -> tuple[str | None, str | None]:
+    row = conn.execute(
+        """
+        SELECT sent_at, subject, content
+        FROM messages
+        WHERE sender_id = ? AND sender_is_me = 0
+        ORDER BY sent_at DESC, id DESC
+        LIMIT 1
+        """,
+        (person_id,),
+    ).fetchone()
+    if row is None:
+        return None, None
+    return row["sent_at"], message_topic(row["subject"], row["content"])
+
+
+def message_topic(subject: str | None, content: str | None) -> str | None:
+    if subject:
+        return subject
+    for line in (content or "").splitlines():
         cleaned = line.strip()
         if cleaned:
             return snippet(cleaned, 120)

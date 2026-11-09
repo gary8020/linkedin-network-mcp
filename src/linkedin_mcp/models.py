@@ -82,6 +82,9 @@ class RelationshipSignals(BaseModel):
 class DormantTie(BaseModel):
     person: Person
     last_topic: str | None = None
+    last_topic_is_mine: bool = False
+    last_inbound_at: datetime | None = None
+    last_inbound_snippet: str | None = None
     silent_for_days: int
     active_tie_strength: float
     outbound_unanswered: bool
