@@ -8,13 +8,15 @@ Local-first, read-only MCP server for a LinkedIn "Get a copy of your data" expor
   </a>
 </p>
 
-`linkedin-network-mcp` ingests a LinkedIn export directory or ZIP into one SQLite database, then exposes typed MCP tools for relationship search, message search, relationship summaries, and dormant connection discovery. It makes no network calls and does not use an LLM internally.
+`linkedin-network-mcp` ingests a LinkedIn export directory or ZIP into one SQLite database, then exposes typed MCP tools for relationship search, message search, relationship summaries, dormant connection discovery, and keyword-ranked warm lists. It makes no network calls, does not use an LLM internally, and never sends messages or touches LinkedIn. AI clients can draft outreach from the results; a human sends it manually.
+
+This is a fork of [0xLT/linkedin-network-mcp](https://github.com/0xLT/linkedin-network-mcp) (MIT, see `LICENSE`).
 
 ## What You Get
 
 - A local SQLite database at `~/.linkedin-network-mcp/linkedin.db` by default.
-- A stdio MCP server for Claude Desktop, Claude Code, Cursor, Continue, or another MCP client.
-- Eight read-only tools:
+- A stdio MCP server for Claude Code, Cursor, Claude Desktop, or another MCP client.
+- Nine read-only tools:
   - `find_person`
   - `get_person`
   - `list_connections`
@@ -23,72 +25,59 @@ Local-first, read-only MCP server for a LinkedIn "Get a copy of your data" expor
   - `get_conversation`
   - `summarize_relationship`
   - `dormant_connections`
+  - `warm_list`
+- A CLI `export` command that writes ranked lists to CSV or Markdown for manual review.
 
 ## Prerequisites
 
 - Python 3.11 or newer.
 - A LinkedIn data export directory or ZIP from LinkedIn's data export settings.
-- For MCP client usage, an MCP-aware client such as Claude Desktop or Claude Code.
+- [uv](https://docs.astral.sh/uv/) (recommended) or `pip`.
 
-The project currently runs directly from source. PyPI/`uvx` usage is the intended distribution path, but local development is the supported path in this repo today.
+## 1. Install
 
-## 1. Get Your LinkedIn Export
+```bash
+git clone https://github.com/gary8020/linkedin-network-mcp
+cd linkedin-network-mcp
+uv sync                      # installs the locked dependency set into .venv
+```
 
-Download your LinkedIn data from LinkedIn's data/privacy export page. LinkedIn may move or rename the page, but the export is usually called something like "Get a copy of your data" or "Download your data."
+Or with plain pip:
 
-For the v0.1 relationship tools, the useful files are:
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+```
 
-- `Profile.csv`
-- `Email Addresses.csv`
-- `PhoneNumbers.csv`
-- `Positions.csv`
-- `Education.csv`
-- `Skills.csv`
-- `Projects.csv`
-- `Connections.csv`
+Either way the CLI is at `.venv/bin/linkedin-network-mcp`. The commands below assume the venv is active (`source .venv/bin/activate`) or that you prefix them with `uv run`.
+
+## 2. Get Your LinkedIn Export
+
+Request your data from LinkedIn's data/privacy export page ("Get a copy of your data"). Include messages. You can pass either the unzipped export directory or the original ZIP; file names are matched case-insensitively (`messages.csv` or `Messages.csv`), and a single nested top-level folder is fine.
+
+Files used:
+
+- `Profile.csv`, `Email Addresses.csv`, `PhoneNumbers.csv`
+- `Positions.csv`, `Education.csv`, `Skills.csv`, `Projects.csv`
+- `Connections.csv` (required)
 - `Invitations.csv`
 - `messages.csv`
-- `Endorsement_Given_Info.csv`
-- `Endorsement_Received_Info.csv`
-
-You can pass either the unzipped export directory or the original ZIP to `linkedin-network-mcp ingest`.
-
-## 2. Install For Local Development
-
-From the repo root:
-
-```bash
-pip install -e .
-```
-
-If you do not want to install the package, run commands with `PYTHONPATH=src`:
-
-```bash
-PYTHONPATH=src python3 -m linkedin_mcp --help
-```
+- `Endorsement_Given_Info.csv`, `Endorsement_Received_Info.csv`
 
 ## 3. Ingest The Export
 
-Installed package:
-
 ```bash
-linkedin-network-mcp ingest /path/to/linkedin-export --db ~/.linkedin-network-mcp/linkedin.db
+linkedin-network-mcp ingest ~/Downloads/Basic_LinkedInDataExport.zip
 ```
 
-Without installing:
-
-```bash
-PYTHONPATH=src python3 -m linkedin_mcp ingest /path/to/linkedin-export --db ~/.linkedin-network-mcp/linkedin.db
-```
-
-The ingest is a full replace. Re-running it drops and rebuilds the generated tables from the export snapshot.
+The default database is `~/.linkedin-network-mcp/linkedin.db`; pass `--db PATH` to use another (for example one database per client export). Ingest is a full replace: re-running it rebuilds the database from the export snapshot.
 
 Expected output shape:
 
 ```json
 {
   "db_path": "/Users/you/.linkedin-network-mcp/linkedin.db",
-  "source_path": "/path/to/linkedin-export",
+  "source_path": "/Users/you/Downloads/Basic_LinkedInDataExport.zip",
   "source_rows": 1937,
   "people": 1035,
   "messages": 908,
@@ -97,106 +86,120 @@ Expected output shape:
 }
 ```
 
-Warnings usually mean LinkedIn changed a CSV shape or a row had an unparseable date. The ingest warns on optional issues and fails only for required v0.1 columns.
+If no messages file is found, ingest still succeeds but prints `warning: No messages.csv found ...`; DM search, DM-based scores, and dormant ties will be empty. Ingest fails without touching the existing database if `Connections.csv` is missing.
+
+After upgrading this package, re-run `ingest`: tools refuse to run against a database built with an older schema.
 
 ## 4. Check The Database
 
 ```bash
-linkedin-network-mcp doctor --db ~/.linkedin-network-mcp/linkedin.db --redact-preview
+linkedin-network-mcp doctor --redact-preview
 ```
 
-Without installing:
+`doctor` reports schema version, row counts, message coverage, unresolved message senders, and a masked sample of tool output.
 
-```bash
-PYTHONPATH=src python3 -m linkedin_mcp doctor --db ~/.linkedin-network-mcp/linkedin.db --redact-preview
-```
+## 5. Warm List (7FSS sponsor prospects by default)
 
-`doctor` reports schema version, row counts, message coverage, unresolved message senders, and a masked sample of tool output when `--redact-preview` is set.
-
-## 5. Try A Tool From The Shell
-
-The `query` command calls the same Python implementation used by the MCP tools.
-
-```bash
-linkedin-network-mcp query find_person '{"query":"alex","limit":5}' --db ~/.linkedin-network-mcp/linkedin.db
-linkedin-network-mcp query search_messages '{"query":"roadmap","limit":5}' --db ~/.linkedin-network-mcp/linkedin.db
-linkedin-network-mcp query dormant_connections '{"min_silent_days":180,"min_active_tie_strength":0.3,"limit":10}' --db ~/.linkedin-network-mcp/linkedin.db
-```
-
-Without installing:
-
-```bash
-PYTHONPATH=src python3 -m linkedin_mcp query find_person '{"query":"alex","limit":5}' --db ~/.linkedin-network-mcp/linkedin.db
-```
-
-## 6. Run The MCP Server
-
-```bash
-linkedin-network-mcp serve --db ~/.linkedin-network-mcp/linkedin.db
-```
-
-The server uses stdio, so it is normally launched by your MCP client rather than run manually in a terminal.
-
-## Claude Desktop Setup
-
-Add this to your Claude Desktop MCP config.
-
-macOS path:
+`warm_list` ranks **every** first-degree connection, including people you have never messaged:
 
 ```text
-~/Library/Application Support/Claude/claude_desktop_config.json
+score = (w_keyword * keyword + w_dm * dm_history + w_endorse * endorsements + w_connected * connected_recency) / sum(weights)
 ```
 
-Local source checkout:
+- `keyword`: distinct keyword hits in company + title, divided by `keyword_saturation` (default 2), capped at 1.
+- `dm_history`: log-scaled DM count in both directions (50+ messages = 1).
+- `endorsements`: endorsements given or received (5+ = 1).
+- `connected_recency`: `exp(-days_since_connected / connected_decay_days)`, measured from the ingest date.
 
-```json
-{
-  "mcpServers": {
-    "linkedin": {
-      "command": "python3",
-      "args": [
-        "-m",
-        "linkedin_mcp",
-        "serve",
-        "--db",
-        "/Users/<you>/.linkedin-network-mcp/linkedin.db"
-      ],
-      "env": {
-        "PYTHONPATH": "/absolute/path/to/linkedin-network-mcp/src"
-      }
-    }
-  }
-}
-```
+Each result includes its components, matched keywords, message counts, and the person's last inbound message, so you can see why someone ranks where they do.
 
-Installed package:
+Default keywords (7 Figure Seller Summit sponsor profile): `saas`, `agency`, `agencies`, `3pl`, `amazon`, `shopify`, `ecommerce`, `e-commerce`, `partnership`, `marketing`, `sponsorship`, `founder`, `cofounder`, `ceo`, `head of`. Keywords match case-insensitively at the start of a word (`partnership` matches "Partnerships", `founder` matches "Co-Founder"); Japanese keywords match as substrings.
 
-```json
-{
-  "mcpServers": {
-    "linkedin": {
-      "command": "linkedin-network-mcp",
-      "args": [
-        "serve",
-        "--db",
-        "/Users/<you>/.linkedin-network-mcp/linkedin.db"
-      ]
-    }
-  }
-}
-```
-
-Restart Claude Desktop after editing the config.
-
-## Claude Code Setup
-
-From this repo, after ingesting the database:
+Run it from the shell:
 
 ```bash
-claude mcp add linkedin -- python3 -m linkedin_mcp serve --db ~/.linkedin-network-mcp/linkedin.db
+linkedin-network-mcp query warm_list '{"limit":25}'
+linkedin-network-mcp query warm_list '{"require_keyword":true,"limit":100}'
+linkedin-network-mcp query warm_list '{"keywords":["recruiter","talent"],"require_keyword":true}'
 ```
 
-If using the source checkout without installing, make sure Claude Code launches the server with `PYTHONPATH` pointing at this repo's `src` directory.
+### Configure keywords and weights
+
+```bash
+linkedin-network-mcp init-config      # writes ~/.linkedin-network-mcp/config.toml
+```
+
+```toml
+[warm_list]
+keywords = ["saas", "agency", "3pl", "amazon", "shopify", "ecommerce", "partnership", "marketing", "sponsorship", "founder", "ceo", "head of"]
+keyword_saturation = 2
+connected_decay_days = 1095
+
+[warm_list.weights]
+keyword = 0.40
+dm_history = 0.30
+endorsements = 0.15
+connected_recency = 0.15
+```
+
+The config is re-read on every `warm_list` call, so edits apply without restarting your MCP client. Config lookup order: `--config PATH`, then `$LINKEDIN_NETWORK_MCP_CONFIG`, then `~/.linkedin-network-mcp/config.toml`, then built-in defaults.
+
+## 6. Export Ranked Lists (CSV / Markdown)
+
+```bash
+linkedin-network-mcp export warm_list '{"limit":5000}' --format csv --out exports/warm_list.csv
+linkedin-network-mcp export warm_list '{"require_keyword":true,"limit":200}' --format md --out exports/sponsors.md
+linkedin-network-mcp export dormant_connections '{"min_silent_days":180}' --format csv --out exports/dormant.csv
+linkedin-network-mcp export list_connections '{"company":"agency","limit":200}' --format csv
+```
+
+Exportable tools: `warm_list`, `dormant_connections`, `list_connections`. Without `--out`, output goes to stdout. CSV files are UTF-8 with a BOM so Excel shows Japanese names correctly, and cells that start with `=`, `+`, `-`, or `@` are prefixed with `'` so spreadsheets do not run them as formulas. Export only reads the database: it does not draft or send anything. `exports/` and all `*.csv` files are git-ignored.
+
+## 7. Connect An MCP Client
+
+The server uses stdio, so your MCP client launches it. Use absolute paths.
+
+### Claude Code
+
+```bash
+cd linkedin-network-mcp
+claude mcp add linkedin --scope user -- "$PWD/.venv/bin/linkedin-network-mcp" serve --db "$HOME/.linkedin-network-mcp/linkedin.db"
+claude mcp list            # should show linkedin as connected
+```
+
+Add `--config /abs/path/config.toml` after `serve` to use a non-default config.
+
+### Cursor
+
+Add to `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project):
+
+```json
+{
+  "mcpServers": {
+    "linkedin": {
+      "command": "/Users/<you>/linkedin-network-mcp/.venv/bin/linkedin-network-mcp",
+      "args": ["serve", "--db", "/Users/<you>/.linkedin-network-mcp/linkedin.db"]
+    }
+  }
+}
+```
+
+Then open Cursor Settings → MCP and check that `linkedin` is enabled and lists 9 tools.
+
+### Claude Desktop
+
+Add the same `mcpServers` block to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) and restart Claude Desktop.
+
+`mcp.json` and `claude_desktop_config.json` are git-ignored because they contain private paths.
+
+## Example Prompts In An MCP Client
+
+- "Run warm_list with require_keyword and show the top 25 sponsor prospects with why each ranks there."
+- "List dormant connections I have not messaged in 180 days, with their last inbound message, and draft a short re-engagement note for each. I will send them myself."
+- "Search my LinkedIn messages for スポンサー and summarize the conversations."
+- "Find 山田太郎 and summarize our relationship."
+
+The server returns structured data only. Any prose or draft is generated by your MCP client.
 
 ## Tool Reference
 
@@ -206,13 +209,13 @@ If using the source checkout without installing, make sure Claude Code launches 
 find_person(query: str, limit: int = 10) -> list[Person]
 ```
 
-Search people by name, company, title, or LinkedIn public ID.
+Search people by name, company, title, or LinkedIn public ID. Names match in either order and with or without spaces (`山田 太郎`, `太郎 山田`, `山田太郎`); full-width characters are normalized. The name from `Connections.csv` is kept as the canonical name.
 
 ```python
 get_person(person_id: int) -> PersonDetail
 ```
 
-Return one person with profile fields, tie strength, last interaction dates, and explainable signals.
+One person with profile fields, tie strength, last interaction dates, and explainable signals.
 
 ```python
 list_connections(
@@ -223,7 +226,7 @@ list_connections(
 ) -> list[Person]
 ```
 
-List first-degree connections, optionally filtered by company or title.
+First-degree connections, optionally filtered by company or title.
 
 ### Messages
 
@@ -238,25 +241,15 @@ search_messages(
 ) -> list[MessageHit]
 ```
 
-Search DMs. By default, the query is treated as plain text and escaped for SQLite FTS5. Set `advanced_fts=true` only when you want to pass raw FTS5 syntax.
+Search DMs. Plain-text terms are prefix-matched and ANDed (`sponsor` finds "sponsoring" and "sponsorship"). If full-text search finds nothing, every term is matched as a substring. Queries containing Japanese (or other CJK) characters always use substring matching, because SQLite's default tokenizer does not split Japanese text into words. Set `advanced_fts=true` to pass raw FTS5 syntax.
 
 ```python
 list_conversations(person_id: int, limit: int = 20) -> list[Conversation]
-```
-
-List conversations involving a person.
-
-```python
 get_conversation(conversation_id: str, limit: int = 100) -> list[Message]
-```
-
-Return messages in one conversation in chronological order.
-
-```python
 summarize_relationship(person_id: int) -> RelationshipSignals
 ```
 
-Return aggregated relationship signals: conversation count, first/last message dates, inbound/outbound counts, last subjects, and unanswered outbound state.
+Conversations involving a person, one conversation in chronological order, and aggregated relationship signals (conversation count, first/last message dates, inbound/outbound counts, last subjects, unanswered outbound state).
 
 ### Network
 
@@ -268,83 +261,56 @@ dormant_connections(
 ) -> list[DormantTie]
 ```
 
-List first-degree connections with meaningful historical signal and stale message activity.
+First-degree connections with past DM history that have gone quiet. Each result includes `last_topic` (and `last_topic_is_mine`), plus `last_inbound_at` / `last_inbound_snippet`: the last thing the other person actually said. Connections you never messaged are not dormant ties; use `warm_list` for those.
 
-## Example Prompts In An MCP Client
+```python
+warm_list(
+    keywords: list[str] | None = None,   # overrides config keywords for this call
+    require_keyword: bool = False,
+    min_score: float = 0.0,
+    limit: int = 50,                     # up to 5000
+) -> list[WarmLead]
+```
 
-After connecting the server, try:
-
-- "Find people in my LinkedIn network who worked at Acme."
-- "Search my LinkedIn messages for roadmap and summarize the relevant conversations."
-- "List dormant connections I have not messaged in 180 days but had a strong prior relationship with."
-- "Show the last conversation with person id 42."
-
-The server returns structured data only. Any prose summary is generated by your MCP client.
+See section 5.
 
 ## Privacy And Data Handling
 
-- The server is local-first and read-only.
-- It makes no outbound network calls.
+- The server is local-first and read-only; it opens the database in SQLite read-only mode.
+- It makes no outbound network calls. A test fails if source code imports a network module.
 - It does not send messages, post, scrape LinkedIn, or modify the export.
-- Generated databases are ignored by `.gitignore`.
-- Real LinkedIn export directories and ZIPs are ignored by `.gitignore`.
-- v0.1 does not ingest high-sensitivity optional mirrors such as ad targeting, account logins, jobs, receipts, or imported phone-book contacts.
-
-Do not commit real exports or generated SQLite databases.
+- The database stores full DM text unencrypted. Keep it on an encrypted disk, use one `--db` per person's export, and delete client databases when an engagement ends.
+- `.gitignore` excludes databases, ZIPs, export folders, and every CSV outside `tests/fixtures/`. CI fails if such a file is tracked.
+- Tests use only the synthetic export in `tests/fixtures/synthetic_export/`. Never commit real exports.
 
 ## Troubleshooting
 
-### `No module named linkedin_mcp`
+### `No module named linkedin_mcp` / `command not found`
 
-Install the package:
+Run `uv sync` (or `.venv/bin/pip install -e .`) and use the absolute path `.../.venv/bin/linkedin-network-mcp`.
 
-```bash
-pip install -e .
-```
+### `Database schema version ... does not match`
 
-Or run with:
-
-```bash
-PYTHONPATH=src python3 -m linkedin_mcp --help
-```
+Re-run `linkedin-network-mcp ingest` on your export after upgrading.
 
 ### `Could not find CSV header`
 
-LinkedIn may have changed the export format, or the export is missing a required file. Run ingest against the top-level export directory or ZIP, not an inner folder unless that inner folder contains the CSVs.
+LinkedIn may have changed the export format, or a file is malformed. Pass the top-level export directory or ZIP.
 
-### `unable to open database file`
+### Empty message search or dormant results
 
-Check that the parent directory exists and is writable. The default path `~/.linkedin-network-mcp/linkedin.db` is created automatically by the ingest command.
+Run `doctor` and check `messages`. If it is 0, the export did not include messages; request a new export with messages selected.
 
-### Empty Search Results
+### Client does not show the server
 
-Run `doctor` first to confirm that messages were ingested:
-
-```bash
-linkedin-network-mcp doctor --db ~/.linkedin-network-mcp/linkedin.db
-```
-
-Then try a broader query or omit `person_id`.
-
-### Claude Desktop Does Not Show The Server
-
-Check that:
-
-- The JSON config is valid.
-- The `PYTHONPATH` value is an absolute path when running from source.
-- The `--db` path points to a database created by `ingest`.
-- Claude Desktop was restarted after editing the config.
+Check that the JSON is valid, the command and `--db` paths are absolute, the database exists, and the client was restarted (Claude Desktop) or the server re-enabled (Cursor Settings → MCP).
 
 ## Development
 
-Run tests:
-
 ```bash
-PYTHONPATH=src python3 -m pytest -q
+uv sync
+uv run pytest -q
+uv run python -m compileall -q src tests
 ```
 
-Run syntax checks:
-
-```bash
-PYTHONPATH=src python3 -m compileall -q src tests
-```
+CI (`.github/workflows/ci.yml`) runs the tests on Python 3.11–3.13 from `uv.lock`, checks a plain `pip install -e .` and an ingest/query/export on the synthetic fixture, and rejects tracked data files outside `tests/fixtures/`.
