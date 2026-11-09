@@ -7,15 +7,29 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+build/
+dist/
 
 # Real LinkedIn exports and generated local state contain sensitive data.
 linkedin-export/
+Basic_LinkedInDataExport*/
+Complete_LinkedInDataExport*/
 *.zip
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 .linkedin-mcp/
 .linkedin-network-mcp/
+
+# CSV files are export data or ranked-list exports; only synthetic fixtures are tracked.
+*.csv
+*.tsv
+*.xlsx
+exports/
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.zip
 
 # Local MCP client configuration can include private paths.
 claude_desktop_config.json
